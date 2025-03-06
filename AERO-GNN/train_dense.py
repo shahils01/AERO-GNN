@@ -139,12 +139,12 @@ class Trainer(object):
     def fit(self):
         
         acc = []
-        seeds = torch.load('./seeds_100.pt')
+        #seeds = torch.load('./seeds_100.pt')
 
         for _ in range(self.args.exp_num):
 
             self.exp = _
-            self.seed = seeds[_]
+            self.seed = 100 #seeds[_]
 
             torch.manual_seed(self.seed)
             random.seed(self.seed)

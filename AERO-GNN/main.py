@@ -20,11 +20,12 @@ def parameter_parser():
     parser.add_argument("--exp-num", type=int, default=100)
     parser.add_argument("--model", type=str, default="aero")
     parser.add_argument("--early-stopping-rounds", type=int, default=100, )
-    parser.add_argument("--device", nargs="?", default="cuda:4", )
+    parser.add_argument("--device", nargs="?", default="cuda:0", )
     parser.add_argument("--split", type=str, default="fixed", )
     parser.add_argument("--task", type=str, default="node-cls", )
     parser.add_argument("--epochs", type=int, default=2000, )
     parser.add_argument("--save-att", type=int, default= 0, )
+    parser.add_argument("--gpus", type=str, default="0,1", help="Comma-separated list of GPU IDs (e.g. '0,1')")
 
 
     """HYPERPARAMETERS"""

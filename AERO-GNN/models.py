@@ -8,7 +8,7 @@ import torch.nn as nn
 from torch.nn import Parameter
 import torch.nn.functional as F
 
-from torch_sparse import SparseTensor, matmul
+#from torch_sparse import SparseTensor, matmul
 
 import torch_geometric
 from torch_geometric.nn import GCN2Conv, GCNConv, GATConv, GATv2Conv, FAConv, TransformerConv
@@ -18,7 +18,8 @@ from torch_geometric.nn.dense.linear import Linear
 from torch_geometric.nn.inits import glorot, ones, zeros
 from torch_geometric.nn.conv.gcn_conv import gcn_norm
 from torch_geometric.typing import  OptTensor
-from torch_scatter import scatter_add
+
+#from torch_scatter import scatter_add
 
 from layers import GATv2_Conv, FA_Conv, MixHopConv, AntiSymmetricConv
 
@@ -101,6 +102,7 @@ class AERO_GNN_Model(MessagePassing):
         for k in range(self.K):
 
             self.k = k+1
+            
             h = self.propagate(edge_index, x = h, z_scale = z_scale)            
             g = self.hop_att_pred(h, z_scale)
             z += h * g
@@ -119,8 +121,7 @@ class AERO_GNN_Model(MessagePassing):
         return z
 
 
-    def forward(self, x, edge_index):
-        
+    def forward(self, x, edge_index):            
         h0 = self.hid_feat_init(x)
         z_k_max = self.aero_propagate(h0, edge_index)
         z_star =  self.node_classifier(z_k_max)
@@ -151,14 +152,20 @@ class AERO_GNN_Model(MessagePassing):
         a_ij = self.softplus(a_ij) + 1e-6
 
         # symmetric normalization (alpha_ij)
-        row, col = edge_index[0], edge_index[1]
-        deg = scatter_add(a_ij, col, dim=0, dim_size=self.num_nodes)
+        row, col = edge_index[0], edge_index[1].unsqueeze(-1)
+        
+        deg = torch.zeros(self.num_nodes, 1, device=a_ij.device)
+        deg = deg.scatter_add(
+            dim=0,
+            index=col.long(),  # Add dimension to match a_ij shape
+            src=a_ij
+        ).squeeze()
+        #deg = torch.scatter_add(a_ij, col, dim=0, dim_size=self.num_nodes)
         deg_inv_sqrt = deg.pow(-0.5)
         deg_inv_sqrt.masked_fill_(deg_inv_sqrt == float('inf'), 0)
         a_ij = deg_inv_sqrt[row] * a_ij * deg_inv_sqrt[col]        
 
         return a_ij
-
 
     def message(self, edge_index, x_j, z_scale_i, z_scale_j):
         a = self.edge_att_pred(z_scale_i, z_scale_j, edge_index)
@@ -210,8 +217,16 @@ class APPNP_Model(MessagePassing):
         h = self.linear_node_2(h)
 
         return h
-
+    
     def ppr_propagate(self, a, h, edge_index):
+        z = h
+        for k in range(self.K):
+            a_drop = self.dropout(a)
+            z = self.propagate(edge_index, x=z, edge_weight=a_drop)
+            z = z * (1 - self.alpha) + h * self.alpha
+        return z
+
+    '''def ppr_propagate(self, a, h, edge_index):
 
         z = h
 
@@ -226,7 +241,7 @@ class APPNP_Model(MessagePassing):
             z = z * (1-self.alpha)
             z += h * self.alpha
 
-        return z
+        return z'''
         
     def forward(self, x, edge_index):
         
@@ -235,12 +250,15 @@ class APPNP_Model(MessagePassing):
         z = self.ppr_propagate(a, h, edge_index)
 
         return z
+    
+    '''def message(self, x_j: Tensor, edge_weight: OptTensor) -> Tensor:
+        return x_j * edge_weight.unsqueeze(-1)'''
 
     def message(self, x_j: Tensor, edge_weight: OptTensor) -> Tensor:
         return x_j * edge_weight.view(-1, 1)
 
-    def message_and_aggregate(self, adj_t: SparseTensor, x: Tensor) -> Tensor:
-        return matmul(adj_t, x, reduce=self.aggr)
+    '''def message_and_aggregate(self, adj_t: SparseTensor, x: Tensor) -> Tensor:
+        return matmul(adj_t, x, reduce=self.aggr)'''
 
 class GPR_GNN_Model(MessagePassing):
 
@@ -854,6 +872,25 @@ class MixHop_Model(nn.Module):
 
 
     def forward(self, x, edge_index):
+        '''n = x.size(0)
+        edge_index, edge_weight = gcn_norm(edge_index, None, n, False, dtype=x.dtype)
+        row, col = edge_index
+        
+        # Use PyTorch's sparse tensors directly
+        adj_t = torch.sparse_coo_tensor(
+            indices=torch.stack([col, row], dim=0),
+            values=edge_weight,
+            size=(n, n)
+        ).coalesce()
+        
+        for i, conv in enumerate(self.convs[:-1]):
+            x = conv(x, adj_t)
+            x = self.activation(x)
+            x = F.dropout(x, p=self.dropout, training=self.training)
+        x = self.convs[-1](x, adj_t)
+        x = self.final_project(x)
+        return x'''
+    
         n = x.size(0)
         edge_weight = None
         
@@ -863,10 +900,10 @@ class MixHop_Model(nn.Module):
 
             adj_t = torch.sparse_coo_tensor(indices=torch.stack([col, row], dim=0), values=edge_weight, size=(n, n))
         
-        elif isinstance(edge_index, SparseTensor):
+        '''elif isinstance(edge_index, SparseTensor):
             edge_index = gcn_norm( edge_index, edge_weight, n, False, dtype=x.dtype)
             edge_weight=None
-            adj_t = edge_index
+            adj_t = edge_index'''
         
         for i, conv in enumerate(self.convs[:-1]):
             x = conv(x, adj_t)

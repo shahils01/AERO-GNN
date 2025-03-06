@@ -9,6 +9,9 @@ from tqdm import trange
 from models import *
 from utils import fixed_split, sparse_split, init_optimizer
 
+device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+device_IDs = [0, 1]
+
 class Trainer(object):
 
     def __init__(self, args, graph):
@@ -18,7 +21,11 @@ class Trainer(object):
         self.graph = graph
         self.target = self.graph.y
 
-        self.device = torch.device(self.args.device)
+        #self.device = torch.device(self.args.device)
+        
+        # Get list of GPU IDs
+        self.gpu_ids = list(map(int, args.gpus.split(',')))
+        self.device = torch.device(f'cuda:{self.gpu_ids[0]}')  # Primary device
         torch.cuda.set_device(self.device)
         
         self.in_channels = self.graph.x.size(1)
@@ -52,6 +59,9 @@ class Trainer(object):
                             self.out_channels,
                             self.graph,
                             )
+        
+        #self.model = nn.DataParallel(self.model, device_ids=device_IDs)
+        self.model = self.model.to(device)
                 
     def data_split(self):
 
@@ -67,7 +77,7 @@ class Trainer(object):
 
         if self.exp == 0: self.graph = self.graph.to(self.device)
         self.target = self.target.long().squeeze().to(self.device)
-        self.model = self.model.to(self.device)
+        #self.model = self.model.to(self.device)
         
         
     def eval(self, index_set):
@@ -91,6 +101,7 @@ class Trainer(object):
 
         self.model.train()
         self.optimizer.zero_grad()
+        
         prediction  = self.model(self.graph.x, self.graph.edge_index)
         prediction = F.log_softmax(prediction, dim=1)
         self.loss = F.nll_loss(prediction[self.train_nodes], self.target[self.train_nodes])
@@ -111,8 +122,7 @@ class Trainer(object):
         self.best_val_acc = 0
         self.best_val_loss = np.inf
         
-        for _ in self.iterator:
-            
+        for i in self.iterator:
             self.do_a_step()
 
             val_acc, val_loss = self.eval(self.validation_nodes)
@@ -140,12 +150,12 @@ class Trainer(object):
     def fit(self):
         
         acc = []
-        seeds = torch.load('./seeds_100.pt')
+        #seeds = torch.load('./seeds_100.pt')
 
         for _ in range(self.args.exp_num):
 
             self.exp = _
-            self.seed = seeds[_]
+            self.seed = 100 #seeds[_]
 
             torch.manual_seed(self.seed)
             random.seed(self.seed)

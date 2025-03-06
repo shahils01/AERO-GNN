@@ -8,8 +8,8 @@ from torch.nn import Parameter
 from torch import sparse as sp
 from torch import Tensor
 
-from torch_sparse import SparseTensor, set_diag, matmul
-from torch_sparse import spmm
+#from torch_sparse import SparseTensor, set_diag, matmul
+#from torch_sparse import spmm
 
 from torch_geometric.nn import GCNConv
 from torch_geometric.nn.conv import MessagePassing
@@ -23,7 +23,7 @@ from torch_geometric.typing import (Adj, NoneType, OptPairTensor, OptTensor, Siz
 
 class FA_Conv(MessagePassing):
     _cached_edge_index: Optional[OptPairTensor]
-    _cached_adj_t: Optional[SparseTensor]
+    #_cached_adj_t: Optional[SparseTensor]
     _alpha: OptTensor
 
     def __init__(self, channels: int, eps: float = 0.1, dropout: float = 0.0,
@@ -54,8 +54,40 @@ class FA_Conv(MessagePassing):
         self.att_r.reset_parameters()
         self._cached_edge_index = None
         self._cached_adj_t = None
+        
+    def forward(self, x: Tensor, x_0: Tensor, edge_index: Tensor,
+                edge_weight: OptTensor = None, return_attention_weights=True):
+        if self.normalize:
+            cache = self._cached_edge_index
+            if cache is None:
+                edge_index, edge_weight = gcn_norm(
+                    edge_index, edge_weight, x.size(self.node_dim),
+                    self.add_self_loops, dtype=x.dtype)
+                if self.cached:
+                    self._cached_edge_index = (edge_index, edge_weight)
+            else:
+                edge_index, edge_weight = cache[0], cache[1]
 
-    def forward(self, x: Tensor, x_0: Tensor, edge_index: Adj,
+        alpha_l = self.att_l(x)
+        alpha_r = self.att_r(x)
+
+        # propagate_type: (x: Tensor, alpha: PairTensor, edge_weight: OptTensor)
+        out = self.propagate(edge_index, x=x, alpha=(alpha_l, alpha_r),
+                             edge_weight=edge_weight, size=None)
+
+        alpha_unnorm = self._alpha_unnorm
+        alpha_norm = self._alpha_norm
+        self._alpha_unnorm = None
+        self._alpha_norm = None
+
+        if self.eps != 0.0:
+            out = out + self.eps * x_0
+        
+        if return_attention_weights:
+            return out, alpha_unnorm, alpha_norm
+        return out
+
+    '''def forward(self, x: Tensor, x_0: Tensor, edge_index: Adj,
                 edge_weight: OptTensor = None, return_attention_weights=True):
         # type: (Tensor, Tensor, Tensor, OptTensor, NoneType) -> Tensor  # noqa
         # type: (Tensor, Tensor, SparseTensor, OptTensor, NoneType) -> Tensor  # noqa
@@ -109,11 +141,11 @@ class FA_Conv(MessagePassing):
         if isinstance(return_attention_weights, bool):
             return out, alpha_unnorm, alpha_norm
         else:
-            return out
+            return out'''
 
     def message(self, x_j: Tensor, alpha_j: Tensor, alpha_i: Tensor,
                 edge_weight: OptTensor) -> Tensor:
-        assert edge_weight is not None
+        #assert edge_weight is not None
         alpha = (alpha_j + alpha_i).tanh().squeeze(-1)
         self._alpha_unnorm = (alpha_j + alpha_i)
         self._alpha_norm = (alpha * edge_weight)
@@ -323,11 +355,11 @@ class GATv2_Conv(MessagePassing):
                 edge_index, edge_attr = add_self_loops(
                     edge_index, edge_attr, fill_value=self.fill_value,
                     num_nodes=num_nodes)
-            elif isinstance(edge_index, SparseTensor):
+            '''elif isinstance(edge_index, SparseTensor):
                 if self.edge_dim is None:
                     edge_index = set_diag(edge_index)
                 else:
-                    raise NotImplementedError()
+                    raise NotImplementedError()'''
         out = self.propagate(edge_index, x=(x_l, x_r), edge_attr=edge_attr, size=None)
 
         alpha = self._alpha
